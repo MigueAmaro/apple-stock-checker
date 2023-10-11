@@ -1,0 +1,5 @@
+export WEBHOOK_URL="your_discord_webhook_url" 
+export USER_AGENT="your_desired_user_agent" 
+export MODEL_NUMBERS="MU663LL/A,MU6A3LL/A,..." 
+export SPECIFIED_STORES="Aventura,Brickell City Center,..." 
+export ZIP_CODE="your_zip_code" 
