@@ -17,7 +17,7 @@ class ColoredFormatter(logging.Formatter):
             return f"{self.BLUE}{log_message}{self.END}"
         return log_message
 
-# Replace your existing logging setup with:
+# Replace your existing logging setup with this to make sure you will see the color:
 log_format = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(level=logging.INFO, format=log_format)
 log = logging.getLogger('')
@@ -54,7 +54,7 @@ def health_check(last_found_time, threshold=3600):
     if current_time - last_found_time > threshold:
         logging.warning("Haven't found stock for over an hour. Check if script is functioning correctly.")
 
-class StockChecker:
+class StockCheker:
     def __init__(self, webhook_url, user_agent, model_numbers, specified_stores, zip_code):
         self.webhook_url = webhook_url
         self.user_agent = user_agent
@@ -65,7 +65,6 @@ class StockChecker:
         self.in_stock_tracker = {}
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": user_agent})
-
 
     def send_discord_notification(self, title, description, image_url=None):
         """Sends an embedded message to the Discord webhook."""
@@ -80,74 +79,50 @@ class StockChecker:
         except Exception as e:
             logging.error(f"Failed to send Discord notification: {e}")
 
+    def send_in_stock_notification(self, product_title, store_name, store_img):
+        title = f"Stock Alert: {product_title}"
+        content = f"Store: {store_name} \nAvailability: In Stock \n@everyone"
+        self.send_discord_notification(title, content, store_img)
+
+    def send_out_of_stock_notification(self, product_title, store_name):
+        title = f"Out of Stock Alert: {product_title}"
+        content = f"Store: {store_name} \nAvailability: Out of Stock \nBe Faster next time!"
+        self.send_discord_notification(title, content)
+
     def check_stock(self, model_number):
-        """Checks the stock for a given model number and sends a notification if available."""
+        """Checks the stock for a given model number and sends a notification if the stock status changes."""
         url = self.url_template.format(model_number)
+
+        # Extract product_title for logging purposes and notifications
         try:
             response = retry_request(url, self.session)
             data = response.json()
 
-            # More detailed logging:
-            if 'body' not in data:
-                logging.error("'body' key not found in JSON data.")
-            elif 'content' not in data['body']:
-                logging.error("'content' key not found in 'body' of JSON data.")
-            elif 'pickupMessage' not in data['body']['content']:
-                logging.error("'pickupMessage' key not found in 'content' of JSON data.")
-            elif 'stores' not in data['body']['content']['pickupMessage']:
-                logging.error("'stores' key not found in 'pickupMessage' of JSON data.")
-
-            try:
-                product_title = data['body']['content']['pickupMessage']['stores'][0]['partsAvailability'][model_number].get('messageTypes', {}).get('compact', {}).get('storePickupProductTitle', 'Unknown Product')
-            except KeyError:
-                logging.error("KeyError: Problem extracting 'storePickupProductTitle'.")
-                return
-
+            product_title = data['body']['content']['pickupMessage']['stores'][0]['partsAvailability'][model_number].get('messageTypes', {}).get('compact', {}).get('storePickupProductTitle', 'Unknown Product')
             logging.info(f"Checking stock for: {product_title}")
 
             for store in data['body']['content']['pickupMessage']['stores']:
-                if 'storeName' not in store:
-                    logging.error("'storeName' key not found in 'store' of JSON data.")
-                if 'partsAvailability' not in store:
-                    logging.error("'partsAvailability' key not found in 'store' of JSON data.")
-                if model_number not in store['partsAvailability']:
-                    logging.error(f"'{model_number}' key not found in 'partsAvailability' of JSON data.")
-                if 'pickupSearchQuote' not in store['partsAvailability'][model_number]:
-                    logging.error("'pickupSearchQuote' key not found in model number details of JSON data.")
+                store_name = store.get('storeName')
+                stock_status = store['partsAvailability'][model_number].get('pickupSearchQuote', '').lower()
+                logging.info(f"{store_name}: {'In Stock' if stock_status != 'currently unavailable' else 'Out of Stock'}")
 
-                try:
-                    store_name = store['storeName']
-                except KeyError:
-                    logging.error("KeyError: 'storeName' not found.")
-                    continue  # Skip to the next store
-
-                try:
-                    stock_status = store['partsAvailability'][model_number]['pickupSearchQuote']
-                except KeyError:
-                    logging.error(f"KeyError: 'pickupSearchQuote' not found for model: {model_number}")
-                    continue  # Skip to the next store
-
-                logging.info(f"{store_name}: {'In Stock' if stock_status.lower() != 'currently unavailable' else 'Out of Stock'}")
-
-                if stock_status.lower() != "currently unavailable" and store_name in self.specified_stores:
-                    # Ensure that the model number is in the tracker and that it's a dictionary.
+                if stock_status != "currently unavailable" and store_name in self.specified_stores:
                     if model_number not in self.in_stock_tracker:
                         self.in_stock_tracker[model_number] = {}
 
-                    # If the specific store isn't in the tracker for the model or it's set to False
+                    # If the specific store isn't in the tracker or it's set to False (meaning previously out-of-stock)
                     if store_name not in self.in_stock_tracker[model_number] or not self.in_stock_tracker[model_number].get(store_name):
-                        title = f"Stock Alert: {product_title}"
-                        content = f"Store: {store_name} \nAvailability: In Stock \n@everyone"
-                        store_img = store.get('storeImageUrl')
-                        self.send_discord_notification(title, content, store_img)
+                        self.send_in_stock_notification(product_title, store_name, store.get('storeImageUrl'))
                         self.in_stock_tracker[model_number][store_name] = True
-                    else:
-                        self.in_stock_tracker[model_number][store_name] = False  # Set to False if the product is out of stock
+                else:
+                    # If the product was previously in-stock and now it's out-of-stock
+                    if self.in_stock_tracker.get(model_number, {}).get(store_name):
+                        self.send_out_of_stock_notification(product_title, store_name)
+                        self.in_stock_tracker[model_number][store_name] = False
 
         except requests.RequestException as e:
             logging.error(f"Request error: {e}")
             self.send_discord_notification("Stock Checker Error", f"Failed to retrieve data: {e}")
-
         except KeyError:
             logging.error("Unexpected response structure. Printing the response for debugging:")
             logging.error(json.dumps(data, indent=4))
@@ -167,7 +142,7 @@ class StockChecker:
 
 def main():
     config = fetch_configurations()
-    checker = StockChecker(
+    checker = StockCheker(
         config['webhook_url'],
         config['user_agent'],
         config['model_numbers'],
