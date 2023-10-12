@@ -48,7 +48,7 @@ Automated stock checker that monitors the availability of Apple products in spec
 2. **Install required Python libraries with pip**:
 
    ```bash
-   pip install requests discord_webhook
+   pip install requests discord-webhook
    ```
 3. **Install dependencies and shell if you are using pipenv**:
 
@@ -77,13 +77,13 @@ Automated stock checker that monitors the availability of Apple products in spec
 Run the script with:
 
 ```bash
-python stock_checker.py
+python stock.py
 ```
 
 Or if you usinf pipenv:
 
 ```bash
-pipenv run python stock_checker.py
+pipenv run python stock.py
 ```
 
 Monitor the logs for information on stock availability for specific models, I used this to get the iPhone 15 Pro Max on day one @ the store.
